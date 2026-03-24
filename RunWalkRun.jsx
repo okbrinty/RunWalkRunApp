@@ -166,11 +166,21 @@ function DistanceCard({ label, miles, runPace, walkPace, runInterval, walkInterv
 
 // ─── Option Generators ────────────────────────────────────────────────────────
 
-/** Paces: 5:00/mi to 20:00/mi in 30-second steps */
+/** Paces: 5:00/mi to 20:00/mi in 30-second steps (stored as sec/mile) */
 const PACE_OPTIONS = (() => {
   const opts = [];
   for (let s = 5 * 60; s <= 20 * 60; s += 30) {
     opts.push({ value: s, label: `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')} /mi` });
+  }
+  return opts;
+})();
+
+/** Paces: 3:00/km to 13:00/km in 15-second steps (stored as sec/mile internally) */
+const PACE_OPTIONS_KM = (() => {
+  const opts = [];
+  for (let skm = 3 * 60; skm <= 13 * 60; skm += 15) {
+    const secPerMile = Math.round(skm * 1.60934);
+    opts.push({ value: secPerMile, label: `${Math.floor(skm / 60)}:${(skm % 60).toString().padStart(2, '0')} /km` });
   }
   return opts;
 })();
@@ -181,6 +191,16 @@ const MPH_OPTIONS = (() => {
   for (let mph = 1.0; mph <= 15.0; mph = Math.round((mph + 0.5) * 10) / 10) {
     const secPerMile = Math.round(3600 / mph);
     opts.push({ value: secPerMile, label: `${mph.toFixed(1)} mph` });
+  }
+  return opts;
+})();
+
+/** Treadmill speeds: 1.5 to 24.0 kph in 0.5-step increments (stored as sec/mile internally) */
+const KPH_OPTIONS = (() => {
+  const opts = [];
+  for (let kph = 1.5; kph <= 24.0; kph = Math.round((kph + 0.5) * 10) / 10) {
+    const secPerMile = Math.round(3600 * 1.60934 / kph);
+    opts.push({ value: secPerMile, label: `${kph.toFixed(1)} kph` });
   }
   return opts;
 })();
@@ -205,6 +225,7 @@ const DEFAULT_RUN_INT   = INTERVAL_OPTIONS.find(o => o.value === 60)  || INTERVA
 const DEFAULT_WALK_INT  = INTERVAL_OPTIONS.find(o => o.value === 60)  || INTERVAL_OPTIONS[3];
 
 const DISTANCES = [
+  { label: '1K',           miles: 0.62137 },
   { label: '1 Mile',       miles: 1 },
   { label: '5K',           miles: 3.1072 },
   { label: '10K',          miles: 6.2137 },
@@ -214,10 +235,10 @@ const DISTANCES = [
 
 // ─── Pace Mode Toggle ─────────────────────────────────────────────────────────
 
-function PaceToggle({ mode, onChange }) {
+function PaceToggle({ mode, onChange, options = ['outdoor', 'treadmill'] }) {
   return (
     <View style={styles.toggleContainer}>
-      {['outdoor', 'treadmill'].map((m) => (
+      {options.map((m) => (
         <TouchableOpacity
           key={m}
           style={[styles.toggleBtn, mode === m && styles.toggleBtnActive]}
@@ -237,16 +258,29 @@ function PaceToggle({ mode, onChange }) {
 
 function SetupScreen({ onStart }) {
   const [paceMode,    setPaceMode]    = useState('outdoor');
+  const [unitMode,    setUnitMode]    = useState('mi');
   const [runPace,     setRunPace]     = useState(DEFAULT_RUN_PACE);
   const [walkPace,    setWalkPace]    = useState(DEFAULT_WALK_PACE);
   const [runInterval, setRunInterval] = useState(DEFAULT_RUN_INT);
   const [walkInterval,setWalkInterval]= useState(DEFAULT_WALK_INT);
 
-  const paceOptions = paceMode === 'outdoor' ? PACE_OPTIONS : MPH_OPTIONS;
+  const getPaceOptions = (pace, unit) => {
+    if (pace === 'outdoor') return unit === 'mi' ? PACE_OPTIONS : PACE_OPTIONS_KM;
+    return unit === 'mi' ? MPH_OPTIONS : KPH_OPTIONS;
+  };
+
+  const paceOptions = getPaceOptions(paceMode, unitMode);
 
   const handlePaceModeChange = (newMode) => {
-    const newOptions = newMode === 'outdoor' ? PACE_OPTIONS : MPH_OPTIONS;
+    const newOptions = getPaceOptions(newMode, unitMode);
     setPaceMode(newMode);
+    setRunPace(findClosest(newOptions, runPace.value));
+    setWalkPace(findClosest(newOptions, walkPace.value));
+  };
+
+  const handleUnitModeChange = (newUnit) => {
+    const newOptions = getPaceOptions(paceMode, newUnit);
+    setUnitMode(newUnit);
     setRunPace(findClosest(newOptions, runPace.value));
     setWalkPace(findClosest(newOptions, walkPace.value));
   };
@@ -268,6 +302,7 @@ function SetupScreen({ onStart }) {
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>PACE</Text>
           <PaceToggle mode={paceMode} onChange={handlePaceModeChange} />
+          <PaceToggle mode={unitMode} onChange={handleUnitModeChange} options={['mi', 'km']} />
           <Dropdown
             label="Running Pace"
             value={runPace}
@@ -682,7 +717,9 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    width: (width - 40 - 8) / 2 - 4, // 2 columns
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: '45%',
   },
   distLabel: {
     fontFamily: Platform.select({ ios: 'Courier New', android: 'monospace' }),
